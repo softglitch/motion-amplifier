@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+import argparse
 import cv2
 import numpy as np
 import enum
@@ -157,18 +158,35 @@ def add_motion(
     return overlay
 
 
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description="Amplify motion in a video and display a heatmap overlay."
+    )
+    parser.add_argument(
+        "video",
+        help="Path to input video file.",
+    )
+    parser.add_argument(
+        "--skip-frames",
+        help="Number of initial frames to skip.",
+        type=int,
+    )
+    return parser.parse_args()
+
+
 def main():
+    args = parse_args()
     pause = False
     cv2.namedWindow(WINDOW_APP, cv2.WINDOW_AUTOSIZE)
     # remove window decorations, but keep it resizable
     cv2.setWindowProperty(WINDOW_APP, cv2.WND_PROP_FULLSCREEN, cv2.WINDOW_FULLSCREEN)
 
-    # Open the MP4 file
-    cap = cv2.VideoCapture("video.mp4")
+    # Open the input video file
+    cap = cv2.VideoCapture(args.video)
 
     # Check if the video opened successfully
     if not cap.isOpened():
-        print("Error: Could not open video file.")
+        print(f"Error: Could not open video file: {args.video}")
     else:
         print("Video file opened successfully!")
 
@@ -177,10 +195,11 @@ def main():
         _, last_frame = cap.read()
         current_frame = 0
 
-        for _ in range(200):
-            current_frame += 1
-            _, last_frame = cap.read()
-            even_older_frame = last_frame.copy()
+        if args.skip_frames:
+            for _ in range(args.skip_frames):
+                current_frame += 1
+                _, last_frame = cap.read()
+                even_older_frame = last_frame.copy()
 
         while True:
             # handle key events

@@ -1,10 +1,9 @@
 [project]
 name = "motion-amplifier"
-version = "0.1.0"
-description = "Add your description here"
+version = "1.0.0"
+description = "Small script to try and show motion in a video during playback"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
     "opencv-python>=4.13.0.92",
-    "pyinstrument>=5.1.2",
 ]
