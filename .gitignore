@@ -11,3 +11,6 @@ wheels/
 
 # Video
 *.mp4
+
+sands.py
+*.html
