@@ -119,11 +119,11 @@ def render(frame: np.ndarray, current_frame: int) -> None:
     render_text(frame, f"Image: {'On' if CONFIG['opacity'] > 0 else 'Off'}", line=5)
     cv2.imshow(WINDOW_APP, frame)
 
+
 def get_frame_edges(frame: np.ndarray) -> np.ndarray:
     edges = cv2.Canny(frame.astype(np.uint8), 1, 2)
     edges = cv2.cvtColor(edges, cv2.COLOR_GRAY2BGR)
     return edges
-
 
 
 def add_motion(
@@ -175,6 +175,7 @@ def parse_args() -> argparse.Namespace:
 
 
 def main():
+    global GRAY
     args = parse_args()
     pause = False
     cv2.namedWindow(WINDOW_APP, cv2.WINDOW_AUTOSIZE)
@@ -192,14 +193,22 @@ def main():
 
         even_older_frame = None
         last_frame = None
-        _, last_frame = cap.read()
+        ok, last_frame = cap.read()
+        if not ok or last_frame is None:
+            print(f"Error: Could not read first frame from video file: {args.video}")
+            cap.release()
+            cv2.destroyAllWindows()
+            return
         current_frame = 0
 
         if args.skip_frames:
             for _ in range(args.skip_frames):
+                ok, frame = cap.read()
+                if not ok or frame is None:
+                    break
                 current_frame += 1
-                _, last_frame = cap.read()
                 even_older_frame = last_frame.copy()
+                last_frame = frame.copy()
 
         while True:
             # handle key events
@@ -225,16 +234,67 @@ def main():
             if key == ord("r"):
                 # reset video to beginning
                 cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
+                current_frame = 0
+                ok, first_frame = cap.read()
+                if not ok or first_frame is None:
+                    print("Reached end of video or failed to decode after restart.")
+                    break
+                last_frame = first_frame.copy()
+                even_older_frame = None
+                if pause:
+                    overlay = add_motion(
+                        last_frame,
+                        last_frame,
+                        motion_scale=CONFIG["motion_scale"],
+                        gray=GRAY,
+                    )
+                    render(overlay, current_frame)
+                continue
 
             # Arrow keys to skip forward/backward
             if key == 81:  # left arrow
                 current_frame = max(0, current_frame - 30)
                 cap.set(cv2.CAP_PROP_POS_FRAMES, current_frame)
-                _, last_frame = cap.read()
+                ok, frame = cap.read()
+                if not ok or frame is None:
+                    print(
+                        "Reached end of video or failed to decode while seeking backward."
+                    )
+                    break
+                last_frame = frame.copy()
+                even_older_frame = None
+                if pause:
+                    overlay = add_motion(
+                        last_frame,
+                        last_frame,
+                        motion_scale=CONFIG["motion_scale"],
+                        gray=GRAY,
+                    )
+                    render(overlay, current_frame)
                 continue
             if key == 83:  # right arrow
+                skipped = 0
                 for _ in range(30):
-                    _, last_frame = cap.read()
+                    ok, frame = cap.read()
+                    if not ok or frame is None:
+                        break
+                    skipped += 1
+                    last_frame = frame.copy()
+                current_frame += skipped
+                if skipped == 0:
+                    print(
+                        "Reached end of video or failed to decode while seeking forward."
+                    )
+                    break
+                even_older_frame = None
+                if pause:
+                    overlay = add_motion(
+                        last_frame,
+                        last_frame,
+                        motion_scale=CONFIG["motion_scale"],
+                        gray=GRAY,
+                    )
+                    render(overlay, current_frame)
                 continue
 
             # space pauses the video
@@ -254,14 +314,16 @@ def main():
                 CONFIG["opacity"] = 0.0 if CONFIG["opacity"] > 0 else 1.0
 
             if not pause:
+                ok, frame = cap.read()
+                if not ok or frame is None:
+                    print("Reached end of video or failed to decode frame.")
+                    break
                 current_frame += 1
-                _, frame = cap.read()
             else:
                 frame = last_frame.copy()
                 if even_older_frame is not None:
                     last_frame = even_older_frame.copy()
 
-            global GRAY
             if key == ord("3"):
                 GRAY = not GRAY
             overlay = add_motion(
@@ -274,8 +336,6 @@ def main():
         # Release resources
         cap.release()
         cv2.destroyAllWindows()
-
-        print("Hello from motion-amplifier!")
 
 
 if __name__ == "__main__":

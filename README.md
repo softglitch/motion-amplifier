@@ -20,7 +20,7 @@ uv sync
 ## Run
 
 ```bash
-python3 main.py
+python3 main.py /path/to/video.mp4
 ```
 
 Use a custom video path:
