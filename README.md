@@ -3,6 +3,9 @@
 Realtime motion-visualization tool built with OpenCV.
 It overlays a configurable heatmap on top of a video to make subtle movement easier to see.
 
+## Demo
+[![Watch the video](https://raw.githubusercontent.com/softglitch/motion-amplifier/main/docs/screenshot.jpg)](https://www.youtube.com/watch?v=KTOaZQqAK_8)
+
 ## Requirements
 
 - Python 3.12+
