@@ -7,6 +7,7 @@ GRAY = False
 
 FRAME_BUFFER_SIZE = 5
 
+
 class Color(enum.Enum):
     RED = [0, 0, 255]
     GREEN = [0, 255, 0]
@@ -27,11 +28,12 @@ COLORS = [
 
 CONFIG = {
     "blur_kernel": 5,
-    "motion_scale": 100,
+    "motion_scale": 1,
     "heatmap_threshold": 40,
     "heatmap_color": 0,
     "heatmap_opacity": 0.5,
     "heamap_scale": 0.33,
+    "opacity": 1.0,
 }
 
 WINDOW_APP = "Motion Amplifier"
@@ -77,9 +79,12 @@ def create_heatmap(
 
 
 def create_overlay(
-    frame: np.ndarray, heatmap: np.ndarray, opacity: float = 0.5
+    frame: np.ndarray,
+    heatmap: np.ndarray,
+    opacity: float = 1.0,
+    heatmap_opacity: float = 0.5,
 ) -> np.ndarray:
-    overlay = cv2.addWeighted(frame, 1.0, heatmap, opacity, 0)
+    overlay = cv2.addWeighted(frame, opacity, heatmap, heatmap_opacity, 0)
     return overlay
 
 
@@ -103,25 +108,35 @@ def render(frame: np.ndarray, current_frame: int) -> None:
         )
         cv2.putText(frame, text, pos, font, size, stroke, font_size, cv2.LINE_AA)
 
-    render_text(frame, f"{current_frame} q to quit, 1,2,3..", line=0)
-    render_text(frame, f"Heatmap: {Color(COLORS[CONFIG['heatmap_color']]).name}", line=1)
+    render_text(frame, f"{current_frame} q to quit, options: 1,2,3..", line=0)
+    render_text(
+        frame, f"Heatmap: {Color(COLORS[CONFIG['heatmap_color']]).name}", line=1
+    )
     render_text(frame, f"Opacity: {CONFIG['heatmap_opacity']}", line=2)
     render_text(frame, f"Gray: {GRAY}", line=3)
+    render_text(frame, f"Motion Scale: {CONFIG['motion_scale']}", line=4)
+    render_text(frame, f"Image: {'On' if CONFIG['opacity'] > 0 else 'Off'}", line=5)
     cv2.imshow(WINDOW_APP, frame)
+
+def get_frame_edges(frame: np.ndarray) -> np.ndarray:
+    edges = cv2.Canny(frame.astype(np.uint8), 1, 2)
+    edges = cv2.cvtColor(edges, cv2.COLOR_GRAY2BGR)
+    return edges
+
 
 
 def add_motion(
     frame: np.ndarray,
     last_frame: np.ndarray,
-    motion_scale: float = 2.0,
+    motion_scale: int = 2,
     gray: bool = False,
 ) -> np.ndarray:
     denoised_last_frame = denoise(last_frame)
     denoised_frame = denoise(frame)
     motion = get_motion(denoised_frame, denoised_last_frame)
-    amplified_motion = cv2.multiply(motion, motion_scale)
-    amplified_motion = cv2.normalize(amplified_motion, None, 0, 255, cv2.NORM_MINMAX)
-    amplified_motion = amplified_motion.astype(np.uint8)
+    amplified_motion = cv2.dilate(
+        motion.astype(np.uint8), np.ones((3, 3), np.uint8), iterations=motion_scale
+    )
     color = COLORS[CONFIG["heatmap_color"]]
     heatmap = create_heatmap(
         amplified_motion,
@@ -132,7 +147,13 @@ def add_motion(
     if gray:
         frame = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
         frame = cv2.cvtColor(frame, cv2.COLOR_GRAY2BGR)
-    overlay = create_overlay(frame, heatmap, opacity=CONFIG["heatmap_opacity"])
+
+    overlay = create_overlay(
+        frame,
+        heatmap,
+        opacity=CONFIG["opacity"],
+        heatmap_opacity=CONFIG["heatmap_opacity"],
+    )
     return overlay
 
 
@@ -151,15 +172,15 @@ def main():
     else:
         print("Video file opened successfully!")
 
+        even_older_frame = None
         last_frame = None
-        last_frame_buffer = []
         _, last_frame = cap.read()
         current_frame = 0
 
         for _ in range(200):
             current_frame += 1
             _, last_frame = cap.read()
-            last_frame_buffer.append(last_frame)
+            even_older_frame = last_frame.copy()
 
         while True:
             # handle key events
@@ -201,22 +222,35 @@ def main():
             if key == ord(" "):
                 pause = not pause
 
+            # set motion scale
+            if key == ord("4"):
+                current_scale = CONFIG["motion_scale"]
+                if current_scale >= 5:
+                    CONFIG["motion_scale"] = 1
+                else:
+                    CONFIG["motion_scale"] = current_scale + 1
+
+            # Toggle image
+            if key == ord("5"):
+                CONFIG["opacity"] = 0.0 if CONFIG["opacity"] > 0 else 1.0
+
             if not pause:
                 current_frame += 1
                 _, frame = cap.read()
+            else:
+                frame = last_frame.copy()
+                if even_older_frame is not None:
+                    last_frame = even_older_frame.copy()
 
-                global GRAY
-                if key == ord("3"):
-                    GRAY = not GRAY
-                overlay = add_motion(
-                    frame, last_frame, motion_scale=CONFIG["motion_scale"], gray=GRAY
-                )
-                if len(last_frame_buffer) > FRAME_BUFFER_SIZE:
-                    last_frame_buffer.pop(0)
-
-                last_frame = frame.copy()
-                last_frame_buffer.append(last_frame)
-                render(overlay, current_frame)
+            global GRAY
+            if key == ord("3"):
+                GRAY = not GRAY
+            overlay = add_motion(
+                frame, last_frame, motion_scale=CONFIG["motion_scale"], gray=GRAY
+            )
+            even_older_frame = last_frame.copy()
+            last_frame = frame.copy()
+            render(overlay, current_frame)
 
         # Release resources
         cap.release()
