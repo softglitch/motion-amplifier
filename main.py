@@ -10,6 +10,7 @@ FRAME_BUFFER_SIZE = 5
 
 SCALE = 1.0
 
+
 class Color(enum.Enum):
     RED = [0, 0, 255]
     GREEN = [0, 255, 0]
@@ -166,7 +167,11 @@ def add_motion(
         edges2 = cv2.Canny(denoised_frame.astype(np.uint8), 100, 200)
         edge_diff = cv2.absdiff(edges1, edges2)
         edge_overlay = cv2.cvtColor(edge_diff, cv2.COLOR_GRAY2BGR)
-        edge_overlay[np.where((edge_overlay == [255, 255, 255]).all(axis=2))] = [0, 255, 255]
+        edge_overlay[np.where((edge_overlay == [255, 255, 255]).all(axis=2))] = [
+            0,
+            255,
+            255,
+        ]
         edge_overlay = cv2.GaussianBlur(edge_overlay, (3, 3), 0)
         overlay = cv2.addWeighted(overlay, 1.0, edge_overlay, 0.5, 0)
 
@@ -187,7 +192,8 @@ def parse_args() -> argparse.Namespace:
         type=int,
     )
     parser.add_argument(
-        "-s", "--scale",
+        "-s",
+        "--scale",
         help="Scale final output (0.5 = 50% size).",
         type=float,
         default=1.0,
