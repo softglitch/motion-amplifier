@@ -8,6 +8,7 @@ GRAY = False
 
 FRAME_BUFFER_SIZE = 5
 
+SCALE = 1.0
 
 class Color(enum.Enum):
     RED = [0, 0, 255]
@@ -29,12 +30,14 @@ COLORS = [
 
 CONFIG = {
     "blur_kernel": 5,
+    "blur": True,
     "motion_scale": 1,
     "heatmap_threshold": 40,
     "heatmap_color": 0,
     "heatmap_opacity": 0.5,
     "heamap_scale": 0.33,
     "opacity": 1.0,
+    "edges": False,
 }
 
 WINDOW_APP = "Motion Amplifier"
@@ -45,13 +48,9 @@ def grayscale(frame: np.ndarray) -> np.ndarray:
     return gray.astype(np.float32)
 
 
-def denoise(frame: np.ndarray, blur_kernel: int = 5, scale: bool = False) -> np.ndarray:
-    if scale:
-        frame = cv2.resize(frame, (0, 0), fx=0.5, fy=0.5)
+def denoise(frame: np.ndarray, blur_kernel: int = 5) -> np.ndarray:
     gray = grayscale(frame)
     denoised_frame = cv2.GaussianBlur(gray, (blur_kernel, blur_kernel), 1.2)
-    if scale:
-        denoised_frame = cv2.resize(denoised_frame, (frame.shape[1], frame.shape[0]))
     return denoised_frame.astype(np.float32)
 
 
@@ -111,19 +110,16 @@ def render(frame: np.ndarray, current_frame: int) -> None:
 
     render_text(frame, f"{current_frame} q to quit, options: 1,2,3..", line=0)
     render_text(
-        frame, f"Heatmap: {Color(COLORS[CONFIG['heatmap_color']]).name}", line=1
+        frame, f"1:Heatmap: {Color(COLORS[CONFIG['heatmap_color']]).name}", line=1
     )
-    render_text(frame, f"Opacity: {CONFIG['heatmap_opacity']}", line=2)
-    render_text(frame, f"Gray: {GRAY}", line=3)
-    render_text(frame, f"Motion Scale: {CONFIG['motion_scale']}", line=4)
-    render_text(frame, f"Image: {'On' if CONFIG['opacity'] > 0 else 'Off'}", line=5)
+    render_text(frame, f"2:Opacity: {CONFIG['heatmap_opacity']}", line=2)
+    render_text(frame, f"3:Gray: {GRAY}", line=3)
+    render_text(frame, f"4:Motion Scale: {CONFIG['motion_scale']}", line=4)
+    render_text(frame, f"5:Image: {'On' if CONFIG['opacity'] > 0 else 'Off'}", line=5)
+    render_text(frame, f"6:Blur Kernel: {CONFIG['blur_kernel']}", line=6)
+    render_text(frame, f"7:Blur Enabled: {CONFIG['blur']}", line=7)
+    render_text(frame, f"8:Edges Enabled: {CONFIG['edges']}", line=8)
     cv2.imshow(WINDOW_APP, frame)
-
-
-def get_frame_edges(frame: np.ndarray) -> np.ndarray:
-    edges = cv2.Canny(frame.astype(np.uint8), 1, 2)
-    edges = cv2.cvtColor(edges, cv2.COLOR_GRAY2BGR)
-    return edges
 
 
 def add_motion(
@@ -132,9 +128,18 @@ def add_motion(
     motion_scale: int = 2,
     gray: bool = False,
 ) -> np.ndarray:
-    denoised_last_frame = denoise(last_frame)
-    denoised_frame = denoise(frame)
-    motion = get_motion(denoised_frame, denoised_last_frame)
+    if SCALE != 1.0:
+        frame = cv2.resize(frame, (0, 0), fx=SCALE, fy=SCALE)
+        last_frame = cv2.resize(last_frame, (0, 0), fx=SCALE, fy=SCALE)
+
+    if CONFIG["blur"]:
+        blur_kernel = CONFIG["blur_kernel"]
+        denoised_last_frame = denoise(last_frame, blur_kernel=blur_kernel)
+        denoised_frame = denoise(frame, blur_kernel=blur_kernel)
+    else:
+        denoised_last_frame = grayscale(last_frame)
+        denoised_frame = grayscale(frame)
+    motion = get_motion(denoised_last_frame, denoised_frame)
     amplified_motion = cv2.dilate(
         motion.astype(np.uint8), np.ones((3, 3), np.uint8), iterations=motion_scale
     )
@@ -155,6 +160,16 @@ def add_motion(
         opacity=CONFIG["opacity"],
         heatmap_opacity=CONFIG["heatmap_opacity"],
     )
+    if CONFIG["edges"]:
+        # highlight differences in edges between frames
+        edges1 = cv2.Canny(denoised_last_frame.astype(np.uint8), 100, 200)
+        edges2 = cv2.Canny(denoised_frame.astype(np.uint8), 100, 200)
+        edge_diff = cv2.absdiff(edges1, edges2)
+        edge_overlay = cv2.cvtColor(edge_diff, cv2.COLOR_GRAY2BGR)
+        edge_overlay[np.where((edge_overlay == [255, 255, 255]).all(axis=2))] = [0, 255, 255]
+        edge_overlay = cv2.GaussianBlur(edge_overlay, (3, 3), 0)
+        overlay = cv2.addWeighted(overlay, 1.0, edge_overlay, 0.5, 0)
+
     return overlay
 
 
@@ -171,12 +186,20 @@ def parse_args() -> argparse.Namespace:
         help="Number of initial frames to skip.",
         type=int,
     )
+    parser.add_argument(
+        "-s", "--scale",
+        help="Scale final output (0.5 = 50% size).",
+        type=float,
+        default=1.0,
+    )
     return parser.parse_args()
 
 
 def main():
     global GRAY
+    global SCALE
     args = parse_args()
+    SCALE = args.scale
     pause = False
     cv2.namedWindow(WINDOW_APP, cv2.WINDOW_AUTOSIZE)
     # remove window decorations, but keep it resizable
@@ -312,6 +335,19 @@ def main():
             # Toggle image
             if key == ord("5"):
                 CONFIG["opacity"] = 0.0 if CONFIG["opacity"] > 0 else 1.0
+
+            if key == ord("6"):
+                current_blur = CONFIG["blur_kernel"]
+                if current_blur >= 15:
+                    CONFIG["blur_kernel"] = 1
+                else:
+                    CONFIG["blur_kernel"] = current_blur + 2
+
+            if key == ord("7"):
+                CONFIG["blur"] = not CONFIG["blur"]
+
+            if key == ord("8"):
+                CONFIG["edges"] = not CONFIG["edges"]
 
             if not pause:
                 ok, frame = cap.read()
